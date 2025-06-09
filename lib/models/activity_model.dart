@@ -248,4 +248,194 @@ class DefaultActivities {
       ),
     ];
   }
+}
+
+// 일기 템플릿 모델
+class DiaryTemplate {
+  final String id;
+  final String name;
+  final String content; // 템플릿 내용 (placeholder들 포함)
+  final String? description;
+  final bool isDefault; // 기본 제공 템플릿 여부
+  final String userId;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final int usageCount; // 사용 횟수
+  final bool isActive;
+
+  DiaryTemplate({
+    required this.id,
+    required this.name,
+    required this.content,
+    this.description,
+    this.isDefault = false,
+    required this.userId,
+    required this.createdAt,
+    required this.updatedAt,
+    this.usageCount = 0,
+    this.isActive = true,
+  });
+
+  DiaryTemplate copyWith({
+    String? id,
+    String? name,
+    String? content,
+    String? description,
+    bool? isDefault,
+    String? userId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    int? usageCount,
+    bool? isActive,
+  }) {
+    return DiaryTemplate(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      content: content ?? this.content,
+      description: description ?? this.description,
+      isDefault: isDefault ?? this.isDefault,
+      userId: userId ?? this.userId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      usageCount: usageCount ?? this.usageCount,
+      isActive: isActive ?? this.isActive,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'content': content,
+      'description': description,
+      'isDefault': isDefault,
+      'userId': userId,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+      'usageCount': usageCount,
+      'isActive': isActive,
+    };
+  }
+
+  factory DiaryTemplate.fromJson(Map<String, dynamic> json) {
+    return DiaryTemplate(
+      id: json['id'],
+      name: json['name'],
+      content: json['content'],
+      description: json['description'],
+      isDefault: json['isDefault'] ?? false,
+      userId: json['userId'],
+      createdAt: DateTime.parse(json['createdAt']),
+      updatedAt: DateTime.parse(json['updatedAt']),
+      usageCount: json['usageCount'] ?? 0,
+      isActive: json['isActive'] ?? true,
+    );
+  }
+}
+
+// 기본 제공 템플릿들
+class DefaultTemplates {
+  static List<DiaryTemplate> get defaultTemplates {
+    final now = DateTime.now();
+    return [
+      DiaryTemplate(
+        id: 'template_daily_reflection',
+        name: '하루 돌아보기',
+        content: '''오늘 하루는 어땠나요?
+
+🌅 오늘 아침 기분: 
+
+💫 오늘의 하이라이트:
+
+📚 배운 것이나 깨달은 것:
+
+🎯 내일 하고 싶은 일:
+
+💭 추가로 기록하고 싶은 것:''',
+        description: '하루를 차근차근 되돌아보는 템플릿',
+        isDefault: true,
+        userId: 'system',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      DiaryTemplate(
+        id: 'template_gratitude',
+        name: '감사 일기',
+        content: '''오늘 감사했던 일들을 적어보세요 🙏
+
+1. 
+
+2. 
+
+3. 
+
+✨ 특별히 고마웠던 사람이 있다면:
+
+🌈 오늘 나에게 일어난 작은 기적:''',
+        description: '감사한 마음을 기록하는 템플릿',
+        isDefault: true,
+        userId: 'system',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      DiaryTemplate(
+        id: 'template_growth',
+        name: '성장 일기',
+        content: '''오늘의 성장 기록 📈
+
+🎯 오늘 달성한 목표:
+
+🚀 새롭게 시도한 것:
+
+💪 극복한 어려움:
+
+📖 배운 교훈:
+
+⭐ 내일 더 성장하기 위한 계획:''',
+        description: '개인 성장을 추적하는 템플릿',
+        isDefault: true,
+        userId: 'system',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      DiaryTemplate(
+        id: 'template_mood_tracking',
+        name: '감정 추적',
+        content: '''오늘의 감정 여행 🎭
+
+🌅 아침 기분: 
+
+🌞 점심 기분:
+
+🌙 저녁 기분:
+
+🤔 기분 변화의 이유:
+
+💡 감정 관리 방법:
+
+🎯 내일 더 좋은 하루를 위한 계획:''',
+        description: '하루 동안의 감정 변화를 추적하는 템플릿',
+        isDefault: true,
+        userId: 'system',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      DiaryTemplate(
+        id: 'template_simple',
+        name: '간단 일기',
+        content: '''오늘은...
+
+기분: 
+
+한 일: 
+
+생각: ''',
+        description: '간단하게 쓰는 일기 템플릿',
+        isDefault: true,
+        userId: 'system',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+  }
 } 

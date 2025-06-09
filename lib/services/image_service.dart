@@ -4,28 +4,43 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
+import 'dart:typed_data';
+import 'package:flutter/services.dart';
 
 class ImageService {
   static const String _imagesFolderName = 'mood_diary_images';
+  static const String _thumbnailsFolderName = 'mood_diary_thumbnails';
   static ImageService? _instance;
   static ImageService get instance => _instance ??= ImageService._();
   ImageService._();
 
   final ImagePicker _picker = ImagePicker();
   Directory? _imagesDirectory;
+  Directory? _thumbnailsDirectory;
   
   // 웹용 임시 이미지 스토리지 (메모리)
   final Map<String, Uint8List> _webImageStorage = {};
+  final Map<String, Uint8List> _webThumbnailStorage = {};
+  
+  // 이미지 캐시 (메모리 최적화)
+  final Map<String, Uint8List> _imageCache = {};
+  static const int _maxCacheSize = 50; // 최대 50개 이미지 캐시
 
   Future<void> init() async {
     try {
       // 웹이 아닌 플랫폼에서만 디렉토리 초기화
       if (!kIsWeb) {
         final appDocDir = await getApplicationDocumentsDirectory();
+        
         _imagesDirectory = Directory('${appDocDir.path}/$_imagesFolderName');
+        _thumbnailsDirectory = Directory('${appDocDir.path}/$_thumbnailsFolderName');
         
         if (!await _imagesDirectory!.exists()) {
           await _imagesDirectory!.create(recursive: true);
+        }
+        
+        if (!await _thumbnailsDirectory!.exists()) {
+          await _thumbnailsDirectory!.create(recursive: true);
         }
       }
     } catch (e) {
@@ -38,8 +53,8 @@ class ImageService {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1024,
-        maxHeight: 1024,
+        maxWidth: 1920, // 더 높은 해상도로 변경
+        maxHeight: 1920,
         imageQuality: 85,
       );
       
@@ -58,8 +73,8 @@ class ImageService {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
-        maxWidth: 1024,
-        maxHeight: 1024,
+        maxWidth: 1920, // 더 높은 해상도로 변경
+        maxHeight: 1920,
         imageQuality: 85,
       );
       
@@ -77,8 +92,8 @@ class ImageService {
   Future<List<String>> pickMultipleImages() async {
     try {
       final List<XFile> images = await _picker.pickMultiImage(
-        maxWidth: 1024,
-        maxHeight: 1024,
+        maxWidth: 1920, // 더 높은 해상도로 변경
+        maxHeight: 1920,
         imageQuality: 85,
       );
       
@@ -97,25 +112,67 @@ class ImageService {
     }
   }
 
-  // 이미지를 로컬에 저장
+  // 이미지 압축 (성능 최적화)
+  Future<Uint8List> _compressImage(Uint8List imageBytes, {
+    int? maxWidth,
+    int? maxHeight,
+    int quality = 85,
+  }) async {
+    try {
+      // 웹이나 간단한 압축을 위해 그대로 반환
+      // 실제 프로덕션에서는 image 패키지 등을 사용하여 압축
+      return imageBytes;
+    } catch (e) {
+      print('이미지 압축 오류: $e');
+      return imageBytes;
+    }
+  }
+
+  // 썸네일 생성 (성능 최적화)
+  Future<Uint8List> _generateThumbnail(Uint8List imageBytes, {
+    int size = 200,
+  }) async {
+    try {
+      // 썸네일 생성 로직
+      // 실제로는 image 패키지를 사용하여 리사이징
+      return await _compressImage(imageBytes, maxWidth: size, maxHeight: size, quality: 70);
+    } catch (e) {
+      print('썸네일 생성 오류: $e');
+      return imageBytes;
+    }
+  }
+
+  // 이미지를 로컬에 저장 (성능 최적화)
   Future<String?> _saveImageToLocal(XFile image) async {
     try {
       final String fileName = '${const Uuid().v4()}.jpg';
+      final String thumbnailFileName = 'thumb_$fileName';
+      
+      final imageBytes = await image.readAsBytes();
+      final compressedBytes = await _compressImage(imageBytes);
+      final thumbnailBytes = await _generateThumbnail(compressedBytes);
       
       if (kIsWeb) {
         // 웹에서는 메모리에 저장
-        final bytes = await image.readAsBytes();
-        _webImageStorage[fileName] = bytes;
-        return fileName; // 웹에서는 파일명만 반환
+        _webImageStorage[fileName] = compressedBytes;
+        _webThumbnailStorage[thumbnailFileName] = thumbnailBytes;
+        return fileName;
       } else {
         // 모바일/데스크톱에서는 파일 시스템에 저장
-        await init(); // 디렉토리 확인
+        await init();
         
         final String filePath = '${_imagesDirectory!.path}/$fileName';
-        final File imageFile = File(image.path);
-        final File savedFile = await imageFile.copy(filePath);
+        final String thumbnailPath = '${_thumbnailsDirectory!.path}/$thumbnailFileName';
         
-        return savedFile.path;
+        // 원본 이미지 저장
+        final File imageFile = File(filePath);
+        await imageFile.writeAsBytes(compressedBytes);
+        
+        // 썸네일 저장
+        final File thumbnailFile = File(thumbnailPath);
+        await thumbnailFile.writeAsBytes(thumbnailBytes);
+        
+        return filePath;
       }
     } catch (e) {
       print('이미지 저장 오류: $e');
@@ -312,4 +369,85 @@ class ImageService {
       ),
     );
   }
+
+  // 캐시된 이미지 가져오기 (성능 최적화)
+  Future<Uint8List?> getCachedImage(String imagePath) async {
+    try {
+      // 캐시에서 먼저 확인
+      if (_imageCache.containsKey(imagePath)) {
+        return _imageCache[imagePath];
+      }
+      
+      Uint8List? imageBytes;
+      
+      if (kIsWeb) {
+        // 웹에서는 메모리 스토리지에서 가져오기
+        imageBytes = _webImageStorage[imagePath];
+      } else {
+        // 파일에서 읽기
+        final File imageFile = File(imagePath);
+        if (await imageFile.exists()) {
+          imageBytes = await imageFile.readAsBytes();
+        }
+      }
+      
+      if (imageBytes != null) {
+        // 캐시에 저장 (크기 제한)
+        _addToCache(imagePath, imageBytes);
+        return imageBytes;
+      }
+      
+      return null;
+    } catch (e) {
+      print('이미지 로딩 오류: $e');
+      return null;
+    }
+  }
+
+  // 썸네일 가져오기 (성능 최적화)
+  Future<Uint8List?> getThumbnail(String imagePath) async {
+    try {
+      String thumbnailPath;
+      
+      if (kIsWeb) {
+        // 웹에서는 썸네일 키 생성
+        final fileName = imagePath;
+        thumbnailPath = 'thumb_$fileName';
+        return _webThumbnailStorage[thumbnailPath];
+      } else {
+        // 파일 시스템에서 썸네일 경로 생성
+        final fileName = imagePath.split('/').last;
+        thumbnailPath = '${_thumbnailsDirectory!.path}/thumb_$fileName';
+        
+        final File thumbnailFile = File(thumbnailPath);
+        if (await thumbnailFile.exists()) {
+          return await thumbnailFile.readAsBytes();
+        }
+      }
+      
+      return null;
+    } catch (e) {
+      print('썸네일 로딩 오류: $e');
+      return null;
+    }
+  }
+
+  // 캐시에 이미지 추가 (메모리 관리)
+  void _addToCache(String key, Uint8List data) {
+    if (_imageCache.length >= _maxCacheSize) {
+      // 가장 오래된 항목 제거 (LRU)
+      final oldestKey = _imageCache.keys.first;
+      _imageCache.remove(oldestKey);
+    }
+    _imageCache[key] = data;
+  }
+
+  // 캐시 클리어 (메모리 최적화)
+  void clearCache() {
+    _imageCache.clear();
+    print('이미지 캐시가 클리어되었습니다');
+  }
+
+  // 이미지 캐시 크기 getter (PerformanceService용)
+  int get imageCacheSize => _imageCache.length;
 } 

@@ -11,13 +11,17 @@ import '../widgets/emotion_selector.dart';
 import '../widgets/activity_chip.dart';
 import '../services/local_storage_service.dart';
 import '../services/image_service.dart';
+import '../services/activity_service.dart';
+import '../services/template_service.dart';
 
 class MoodEntryScreen extends StatefulWidget {
   final MoodEntry? existingEntry; // 수정할 기존 일기 (없으면 새 일기)
+  final DateTime? preselectedDate; // 미리 선택된 날짜
   
   const MoodEntryScreen({
     super.key,
     this.existingEntry,
+    this.preselectedDate,
   });
 
   @override
@@ -33,12 +37,18 @@ class _MoodEntryScreenState extends State<MoodEntryScreen> {
   DateTime _selectedDate = DateTime.now();
   List<String> _selectedActivities = [];
   List<String> _imageUrls = []; // 이미지 경로 목록
+  List<Activity> _availableActivities = [];
+  List<DiaryTemplate> _availableTemplates = []; // 템플릿 목록 추가
   bool _isSaving = false;
+  bool _isLoadingActivities = false;
+  bool _isLoadingTemplates = false; // 템플릿 로딩 상태 추가
 
   @override
   void initState() {
     super.initState();
     _initializeFields();
+    _loadActivities();
+    _loadTemplates(); // 템플릿 로드 추가
   }
 
   void _initializeFields() {
@@ -50,6 +60,44 @@ class _MoodEntryScreenState extends State<MoodEntryScreen> {
       _selectedDate = entry.date;
       _selectedActivities = List.from(entry.activities);
       _imageUrls = List.from(entry.imageUrls); // 기존 이미지들 로드
+    } else if (widget.preselectedDate != null) {
+      // 새 일기 작성 시 미리 선택된 날짜 사용
+      _selectedDate = widget.preselectedDate!;
+    }
+  }
+
+  Future<void> _loadActivities() async {
+    setState(() => _isLoadingActivities = true);
+    try {
+      final activities = await ActivityService.instance.getAllActiveActivities();
+      if (mounted) {
+        setState(() {
+          _availableActivities = activities;
+          _isLoadingActivities = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingActivities = false);
+      }
+    }
+  }
+
+  // 템플릿 로드 메서드 추가
+  Future<void> _loadTemplates() async {
+    setState(() => _isLoadingTemplates = true);
+    try {
+      final templates = await TemplateService.instance.getAllActiveTemplates();
+      if (mounted) {
+        setState(() {
+          _availableTemplates = templates;
+          _isLoadingTemplates = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingTemplates = false);
+      }
     }
   }
 
@@ -297,17 +345,26 @@ class _MoodEntryScreenState extends State<MoodEntryScreen> {
                   size: AppSizes.iconM,
                 ),
                 const SizedBox(width: AppSizes.paddingM),
-                Text(
-                  '오늘 하루는 어땠나요?',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                Expanded(
+                  child: Text(
+                    '오늘 하루는 어땠나요?',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                const Spacer(),
-                Text(
-                  '(선택사항)',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withOpacity(0.6),
+                // 템플릿 선택 버튼 추가
+                TextButton.icon(
+                  onPressed: _showTemplateDialog,
+                  icon: const Icon(Icons.article, size: 16),
+                  label: const Text('템플릿'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSizes.paddingS,
+                      vertical: AppSizes.paddingXS,
+                    ),
                   ),
                 ),
               ],
@@ -560,31 +617,98 @@ class _MoodEntryScreenState extends State<MoodEntryScreen> {
                   size: AppSizes.iconM,
                 ),
                 const SizedBox(width: AppSizes.paddingM),
-                Text(
-                  '오늘 한 활동들',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                Expanded(
+                  child: Text(
+                    '오늘 한 활동들',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _navigateToActivityManagement(),
+                  icon: const Icon(Icons.settings, size: 16),
+                  label: const Text('관리'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSizes.paddingS,
+                      vertical: AppSizes.paddingXS,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: AppSizes.paddingM),
-            Wrap(
-              spacing: AppSizes.paddingS,
-              runSpacing: AppSizes.paddingS,
-              children: DefaultActivities.defaultActivities.map((activity) {
-                final isSelected = _selectedActivities.contains(activity.id);
-                return ActivityChip(
-                  activity: activity,
-                  isSelected: isSelected,
-                  onTap: () => _toggleActivity(activity.id),
-                );
-              }).toList(),
-            ),
+            
+            if (_isLoadingActivities)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(AppSizes.paddingM),
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else if (_availableActivities.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSizes.paddingM),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(AppSizes.radiusM),
+                  border: Border.all(
+                    color: theme.colorScheme.outline.withOpacity(0.2),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.add_circle_outline,
+                      size: 32,
+                      color: theme.colorScheme.onSurface.withOpacity(0.4),
+                    ),
+                    const SizedBox(height: AppSizes.paddingS),
+                    Text(
+                      '활동이 없습니다',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withOpacity(0.6),
+                      ),
+                    ),
+                    const SizedBox(height: AppSizes.paddingXS),
+                    Text(
+                      '관리 버튼을 눌러 활동을 추가해보세요',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withOpacity(0.4),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Wrap(
+                spacing: AppSizes.paddingS,
+                runSpacing: AppSizes.paddingS,
+                children: _availableActivities.map((activity) {
+                  final isSelected = _selectedActivities.contains(activity.id);
+                  return ActivityChip(
+                    activity: activity,
+                    isSelected: isSelected,
+                    onTap: () => _toggleActivity(activity.id),
+                  );
+                }).toList(),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  void _navigateToActivityManagement() async {
+    final result = await Navigator.of(context).pushNamed('/activity_management');
+    if (result == true) {
+      // 활동 목록이 변경되었으면 다시 로드
+      _loadActivities();
+    }
   }
 
   Color _getMoodColor(MoodType mood) {
@@ -608,6 +732,8 @@ class _MoodEntryScreenState extends State<MoodEntryScreen> {
         _selectedActivities.remove(activityId);
       } else {
         _selectedActivities.add(activityId);
+        // 활동 사용 횟수 증가 (비동기로 처리하여 UI 블로킹 방지)
+        ActivityService.instance.incrementActivityUsage(activityId);
       }
     });
   }
@@ -761,5 +887,144 @@ class _MoodEntryScreenState extends State<MoodEntryScreen> {
         );
       }
     }
+  }
+
+  // 템플릿 선택 다이얼로그 추가
+  void _showTemplateDialog() {
+    if (_availableTemplates.isEmpty && !_isLoadingTemplates) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('사용 가능한 템플릿이 없습니다')),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          padding: const EdgeInsets.all(AppSizes.paddingM),
+          child: Column(
+            children: [
+              // 핸들바
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: AppSizes.paddingM),
+              Row(
+                children: [
+                  Icon(Icons.article, color: AppColors.primary),
+                  const SizedBox(width: AppSizes.paddingS),
+                  const Text(
+                    '템플릿 선택',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('취소'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSizes.paddingM),
+              Expanded(
+                child: _isLoadingTemplates
+                    ? const Center(child: CircularProgressIndicator())
+                    : ListView.builder(
+                        controller: scrollController,
+                        itemCount: _availableTemplates.length,
+                        itemBuilder: (context, index) {
+                          final template = _availableTemplates[index];
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: AppSizes.paddingS),
+                            child: ListTile(
+                              leading: Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(AppSizes.radiusS),
+                                ),
+                                child: const Icon(
+                                  Icons.article,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              title: Text(
+                                template.name,
+                                style: const TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (template.description != null)
+                                    Text(template.description!),
+                                ],
+                              ),
+                              onTap: () => _applyTemplate(template),
+                              trailing: const Icon(Icons.chevron_right),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 템플릿 적용 메서드 추가
+  void _applyTemplate(DiaryTemplate template) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${template.name} 템플릿 적용'),
+        content: Text('현재 작성 중인 내용이 템플릿으로 대체됩니다.\n계속하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // 다이얼로그 닫기
+              Navigator.pop(context); // 템플릿 선택 닫기
+              
+              setState(() {
+                _contentController.text = template.content;
+              });
+              
+              // 템플릿 사용 횟수 증가
+              TemplateService.instance.incrementTemplateUsage(template.id);
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${template.name} 템플릿이 적용되었습니다'),
+                  backgroundColor: AppColors.success,
+                ),
+              );
+            },
+            child: const Text('적용'),
+          ),
+        ],
+      ),
+    );
   }
 } 

@@ -6,6 +6,7 @@ import '../constants/app_sizes.dart';
 import '../models/mood_entry_model.dart';
 import '../models/activity_model.dart';
 import '../widgets/mood_entry_card.dart';
+import '../widgets/mini_calendar_widget.dart';
 import '../services/local_storage_service.dart';
 import 'mood_entry_screen.dart';
 
@@ -184,6 +185,7 @@ class MoodDiaryScreenState extends State<MoodDiaryScreen> {
           if (_showAdvancedFilters) _buildAdvancedFilters(),
           _buildFilterChips(),
           _buildActiveFiltersIndicator(),
+          if (_showAdvancedFilters) _buildMiniCalendar(),
           if (_isLoading)
             const SliverFillRemaining(
               child: Center(child: CircularProgressIndicator()),
@@ -879,5 +881,20 @@ class MoodDiaryScreenState extends State<MoodDiaryScreen> {
         );
       }
     }
+  }
+
+  Widget _buildMiniCalendar() {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(AppSizes.paddingM, 0, AppSizes.paddingM, AppSizes.paddingS),
+        child: MiniCalendarWidget(
+          onDateSelected: (date) {
+            // 선택된 날짜의 일기들을 보여주기 위해 달력 탭으로 이동
+            Navigator.of(context).pushNamed('/calendar');
+          },
+          monthsToShow: 2,
+        ),
+      ),
+    );
   }
 } 

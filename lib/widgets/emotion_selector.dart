@@ -15,9 +15,18 @@ class EmotionSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 감정 순서: 최고 → 좋음 → 보통 → 나쁨 → 최악
+    final orderedMoods = [
+      MoodType.best,
+      MoodType.good,
+      MoodType.neutral,
+      MoodType.bad,
+      MoodType.worst,
+    ];
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: MoodType.values.map((mood) {
+      children: orderedMoods.map((mood) {
         return _buildEmotionButton(mood);
       }).toList(),
     );

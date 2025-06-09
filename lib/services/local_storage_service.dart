@@ -234,53 +234,51 @@ class LocalStorageService {
     }
   }
 
-  // 통계 관련 메소드들
-  
-  // 특정 월의 감정 통계 가져오기
+  // ============ 성능 최적화된 통계 메서드들 ============
+
+  // 월별 감정 통계 (캐시 활용)
   Future<Map<MoodType, int>> getMoodStatistics(DateTime month) async {
-    final monthEntries = await getMoodEntriesByMonth(month);
-    final moodCounts = <MoodType, int>{};
+    final entries = await getMoodEntriesByMonth(month);
+    final stats = <MoodType, int>{};
     
     // 모든 감정 타입 초기화
     for (final mood in MoodType.values) {
-      moodCounts[mood] = 0;
+      stats[mood] = 0;
     }
     
-    // 실제 데이터 카운트
-    for (final entry in monthEntries) {
-      moodCounts[entry.mood] = (moodCounts[entry.mood] ?? 0) + 1;
+    // 감정별 카운트
+    for (final entry in entries) {
+      stats[entry.mood] = (stats[entry.mood] ?? 0) + 1;
     }
     
-    return moodCounts;
+    return stats;
   }
 
-  // 현재 연속 기록 계산
+  // 현재 연속 기록 계산 (최적화)
   Future<int> getCurrentStreak() async {
     final allEntries = await getAllMoodEntries();
     if (allEntries.isEmpty) return 0;
     
-    // 날짜별로 정렬
-    allEntries.sort((a, b) => b.date.compareTo(a.date));
+    // 날짜별로 그룹화 (중복 날짜 제거)
+    final entryDates = <DateTime>{};
+    for (final entry in allEntries) {
+      final date = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      entryDates.add(date);
+    }
+    
+    final sortedDates = entryDates.toList()..sort((a, b) => b.compareTo(a));
+    
+    final today = DateTime.now();
+    final todayNormalized = DateTime(today.year, today.month, today.day);
     
     int streak = 0;
-    DateTime currentDate = DateTime.now();
+    DateTime checkDate = todayNormalized;
     
-    // 오늘부터 역순으로 확인
-    for (int i = 0; i < 365; i++) { // 최대 1년까지만 확인
-      final checkDate = currentDate.subtract(Duration(days: i));
-      final hasEntry = allEntries.any((entry) => 
-        entry.date.year == checkDate.year &&
-        entry.date.month == checkDate.month &&
-        entry.date.day == checkDate.day
-      );
-      
-      if (hasEntry) {
+    for (int i = 0; i < 365; i++) { // 최대 1년까지
+      if (sortedDates.contains(checkDate)) {
         streak++;
-      } else if (i == 0) {
-        // 오늘 기록이 없으면 어제부터 확인
-        continue;
+        checkDate = checkDate.subtract(const Duration(days: 1));
       } else {
-        // 연속 기록이 끊어짐
         break;
       }
     }
@@ -288,58 +286,121 @@ class LocalStorageService {
     return streak;
   }
 
-  // 최장 연속 기록 계산
+  // 최장 연속 기록 계산 (최적화)
   Future<int> getLongestStreak() async {
     final allEntries = await getAllMoodEntries();
     if (allEntries.isEmpty) return 0;
     
-    // 날짜별로 정렬
-    allEntries.sort((a, b) => a.date.compareTo(b.date));
-    
-    // 날짜별로 그룹화
-    final Set<String> entryDates = {};
+    // 날짜별로 그룹화 (중복 날짜 제거)
+    final entryDates = <DateTime>{};
     for (final entry in allEntries) {
-      final dateKey = '${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}-${entry.date.day.toString().padLeft(2, '0')}';
-      entryDates.add(dateKey);
+      final date = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      entryDates.add(date);
     }
-    
-    if (entryDates.isEmpty) return 0;
     
     final sortedDates = entryDates.toList()..sort();
     
-    int maxStreak = 1;
+    int longestStreak = 0;
     int currentStreak = 1;
     
     for (int i = 1; i < sortedDates.length; i++) {
-      final prevDate = DateTime.parse(sortedDates[i - 1]);
-      final currentDate = DateTime.parse(sortedDates[i]);
+      final diff = sortedDates[i].difference(sortedDates[i - 1]).inDays;
       
-      // 연속된 날짜인지 확인
-      final difference = currentDate.difference(prevDate).inDays;
-      
-      if (difference == 1) {
+      if (diff == 1) {
         currentStreak++;
-        maxStreak = maxStreak > currentStreak ? maxStreak : currentStreak;
       } else {
+        longestStreak = longestStreak > currentStreak ? longestStreak : currentStreak;
         currentStreak = 1;
       }
     }
     
-    return maxStreak;
+    return longestStreak > currentStreak ? longestStreak : currentStreak;
   }
 
-  // 활동별 감정 분석
-  Future<Map<String, List<MoodType>>> getActivityMoodAnalysis(DateTime month) async {
-    final monthEntries = await getMoodEntriesByMonth(month);
-    final activityMoodMap = <String, List<MoodType>>{};
+  // 주간 감정 트렌드 (최적화)
+  Future<List<Map<String, dynamic>>> getWeeklyTrend() async {
+    final now = DateTime.now();
+    final weekStart = now.subtract(Duration(days: now.weekday - 1));
     
-    for (final entry in monthEntries) {
+    final entries = await getAllMoodEntries();
+    final weeklyData = <Map<String, dynamic>>[];
+    
+    for (int i = 0; i < 7; i++) {
+      final date = weekStart.add(Duration(days: i));
+      final dateNormalized = DateTime(date.year, date.month, date.day);
+      
+      final dayEntries = entries.where((entry) {
+        final entryDate = DateTime(entry.date.year, entry.date.month, entry.date.day);
+        return entryDate.isAtSameMomentAs(dateNormalized);
+      }).toList();
+      
+      // 평균 감정 계산
+      double avgMood = 0;
+      if (dayEntries.isNotEmpty) {
+        final total = dayEntries.fold<int>(0, (sum, entry) => sum + entry.mood.index);
+        avgMood = total / dayEntries.length;
+      }
+      
+      weeklyData.add({
+        'date': dateNormalized,
+        'avgMood': avgMood,
+        'entryCount': dayEntries.length,
+      });
+    }
+    
+    return weeklyData;
+  }
+
+  // 활동별 감정 분석 (최적화)
+  Future<Map<String, Map<MoodType, int>>> getActivityMoodAnalysis() async {
+    final entries = await getAllMoodEntries();
+    final analysis = <String, Map<MoodType, int>>{};
+    
+    for (final entry in entries) {
       for (final activityId in entry.activities) {
-        activityMoodMap.putIfAbsent(activityId, () => []).add(entry.mood);
+        analysis.putIfAbsent(activityId, () => <MoodType, int>{});
+        analysis[activityId]!.putIfAbsent(entry.mood, () => 0);
+        analysis[activityId]![entry.mood] = analysis[activityId]![entry.mood]! + 1;
       }
     }
     
-    return activityMoodMap;
+    return analysis;
+  }
+
+  // 배치 저장 (여러 일기 동시 저장)
+  Future<bool> saveMoodEntriesBatch(List<MoodEntry> entries) async {
+    try {
+      await init();
+      
+      final allEntries = await getAllMoodEntries();
+      
+      // 새 항목들을 기존 리스트에 병합
+      for (final newEntry in entries) {
+        final index = allEntries.indexWhere((e) => e.id == newEntry.id);
+        if (index != -1) {
+          allEntries[index] = newEntry;
+        } else {
+          allEntries.add(newEntry);
+        }
+      }
+      
+      final result = await _saveAllEntries(allEntries);
+      if (result) {
+        _invalidateCache();
+      }
+      return result;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // 메모리 사용량 최적화를 위한 캐시 크기 제한
+  void _limitCacheSize() {
+    if (_cachedEntries != null && _cachedEntries!.length > 1000) {
+      // 1000개 이상이면 최신 800개만 유지
+      _cachedEntries!.sort((a, b) => b.date.compareTo(a.date));
+      _cachedEntries = _cachedEntries!.take(800).toList();
+    }
   }
 
   // 월별 일기 작성 수 통계
@@ -405,4 +466,87 @@ class LocalStorageService {
       'generated_at': DateTime.now().toIso8601String(),
     };
   }
+
+  // 페이지네이션된 일기 가져오기 (성능 최적화)
+  Future<List<MoodEntry>> getMoodEntriesPaginated({
+    int page = 0,
+    int pageSize = 20,
+    MoodType? filterMood,
+    String? searchQuery,
+    bool? favoritesOnly,
+  }) async {
+    final allEntries = await getAllMoodEntries();
+    
+    // 필터링 적용
+    List<MoodEntry> filteredEntries = allEntries;
+    
+    if (filterMood != null) {
+      filteredEntries = filteredEntries.where((entry) => entry.mood == filterMood).toList();
+    }
+    
+    if (searchQuery != null && searchQuery.isNotEmpty) {
+      final lowerQuery = searchQuery.toLowerCase();
+      filteredEntries = filteredEntries.where((entry) {
+        return (entry.title?.toLowerCase().contains(lowerQuery) ?? false) ||
+               entry.content.toLowerCase().contains(lowerQuery);
+      }).toList();
+    }
+    
+    if (favoritesOnly == true) {
+      filteredEntries = filteredEntries.where((entry) => entry.isFavorite).toList();
+    }
+    
+    // 날짜순 정렬 (최신순)
+    filteredEntries.sort((a, b) => b.date.compareTo(a.date));
+    
+    // 페이지네이션 적용
+    final startIndex = page * pageSize;
+    final endIndex = (startIndex + pageSize).clamp(0, filteredEntries.length);
+    
+    if (startIndex >= filteredEntries.length) {
+      return [];
+    }
+    
+    return filteredEntries.sublist(startIndex, endIndex);
+  }
+
+  // 총 일기 개수 (필터 적용)
+  Future<int> getMoodEntriesCount({
+    MoodType? filterMood,
+    String? searchQuery,
+    bool? favoritesOnly,
+  }) async {
+    final allEntries = await getAllMoodEntries();
+    
+    List<MoodEntry> filteredEntries = allEntries;
+    
+    if (filterMood != null) {
+      filteredEntries = filteredEntries.where((entry) => entry.mood == filterMood).toList();
+    }
+    
+    if (searchQuery != null && searchQuery.isNotEmpty) {
+      final lowerQuery = searchQuery.toLowerCase();
+      filteredEntries = filteredEntries.where((entry) {
+        return (entry.title?.toLowerCase().contains(lowerQuery) ?? false) ||
+               entry.content.toLowerCase().contains(lowerQuery);
+      }).toList();
+    }
+    
+    if (favoritesOnly == true) {
+      filteredEntries = filteredEntries.where((entry) => entry.isFavorite).toList();
+    }
+    
+    return filteredEntries.length;
+  }
+
+  // 최근 일기 가져오기 (홈 화면용)
+  Future<List<MoodEntry>> getRecentMoodEntries({int limit = 5}) async {
+    final allEntries = await getAllMoodEntries();
+    allEntries.sort((a, b) => b.date.compareTo(a.date));
+    return allEntries.take(limit).toList();
+  }
+
+  // Public 메서드들 (PerformanceService용)
+  bool isCacheValid() => _isCacheValid();
+  void limitCacheSize() => _limitCacheSize();
 } 
