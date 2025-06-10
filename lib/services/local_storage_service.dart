@@ -367,24 +367,53 @@ class LocalStorageService {
     return analysis;
   }
 
-  // 배치 저장 (여러 일기 동시 저장)
+  // 성능 최적화: 캐시 크기 제한
+  void limitCacheSize() {
+    if (_cachedEntries != null && _cachedEntries!.length > 1000) {
+      // 최신 500개만 유지
+      _cachedEntries!.sort((a, b) => b.date.compareTo(a.date));
+      _cachedEntries = _cachedEntries!.take(500).toList();
+      
+      // 비동기로 저장 (성능 영향 최소화)
+      Future.microtask(() => _saveAllEntries(_cachedEntries!));
+    }
+  }
+
+  // 성능 최적화: 캐시 통계
+  Map<String, dynamic> getCacheStats() {
+    return {
+      'cacheSize': _cachedEntries?.length ?? 0,
+      'isValid': _isCacheValid(),
+      'lastUpdate': _lastCacheUpdate?.toIso8601String(),
+      'validDuration': _cacheValidDuration.inMinutes,
+    };
+  }
+
+  // 성능 최적화: 강제 캐시 새로고침
+  Future<void> refreshCache() async {
+    _invalidateCache();
+    await getAllMoodEntries(); // 캐시 다시 로드
+  }
+
+  // 성능 최적화: 배치 저장 (여러 일기 한번에 저장)
   Future<bool> saveMoodEntriesBatch(List<MoodEntry> entries) async {
     try {
       await init();
       
-      final allEntries = await getAllMoodEntries();
+      final existingEntries = await getAllMoodEntries();
+      final updatedEntries = List<MoodEntry>.from(existingEntries);
       
-      // 새 항목들을 기존 리스트에 병합
+      // 배치로 업데이트
       for (final newEntry in entries) {
-        final index = allEntries.indexWhere((e) => e.id == newEntry.id);
+        final index = updatedEntries.indexWhere((e) => e.id == newEntry.id);
         if (index != -1) {
-          allEntries[index] = newEntry;
+          updatedEntries[index] = newEntry;
         } else {
-          allEntries.add(newEntry);
+          updatedEntries.add(newEntry);
         }
       }
       
-      final result = await _saveAllEntries(allEntries);
+      final result = await _saveAllEntries(updatedEntries);
       if (result) {
         _invalidateCache();
       }
@@ -394,13 +423,21 @@ class LocalStorageService {
     }
   }
 
-  // 메모리 사용량 최적화를 위한 캐시 크기 제한
-  void _limitCacheSize() {
-    if (_cachedEntries != null && _cachedEntries!.length > 1000) {
-      // 1000개 이상이면 최신 800개만 유지
-      _cachedEntries!.sort((a, b) => b.date.compareTo(a.date));
-      _cachedEntries = _cachedEntries!.take(800).toList();
+  // 성능 최적화: 메모리 사용량 추정
+  int getEstimatedMemoryUsage() {
+    if (_cachedEntries == null) return 0;
+    
+    int totalSize = 0;
+    for (final entry in _cachedEntries!) {
+      // 대략적인 크기 계산 (문자열 길이 + 기본 객체 크기)
+      totalSize += (entry.content.length * 2); // UTF-16
+      totalSize += (entry.title?.length ?? 0) * 2;
+      totalSize += entry.activities.length * 20; // 활동당 평균 20바이트
+      totalSize += entry.imageUrls.length * 50; // 이미지 경로당 평균 50바이트
+      totalSize += 100; // 기본 객체 오버헤드
     }
+    
+    return totalSize;
   }
 
   // 월별 일기 작성 수 통계
@@ -548,5 +585,4 @@ class LocalStorageService {
 
   // Public 메서드들 (PerformanceService용)
   bool isCacheValid() => _isCacheValid();
-  void limitCacheSize() => _limitCacheSize();
 } 

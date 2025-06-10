@@ -20,13 +20,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _selectedIndex = 0; // 일기 화면이 첫 번째가 됩니다
   final GlobalKey<MoodDiaryScreenState> _diaryKey = GlobalKey<MoodDiaryScreenState>();
   final GlobalKey<CalendarScreenState> _calendarKey = GlobalKey<CalendarScreenState>();
+  final GlobalKey<StatisticsScreenState> _statisticsKey = GlobalKey<StatisticsScreenState>();
+  
+  // 성능 최적화: 화면 캐싱
+  late final List<Widget> _screens;
+  
+  @override
+  void initState() {
+    super.initState();
+    // 화면 미리 생성 (성능 최적화)
+    _screens = [
+      MoodDiaryScreen(key: _diaryKey),
+      CalendarScreen(key: _calendarKey),
+      StatisticsScreen(key: _statisticsKey),
+      const SettingsScreen(),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
     return Scaffold(
-      body: _getSelectedScreen(),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _screens,
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [
@@ -78,20 +97,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _getSelectedScreen() {
-    switch (_selectedIndex) {
-      case 0:
-        return MoodDiaryScreen(key: _diaryKey);
-      case 1:
-        return CalendarScreen(key: _calendarKey);
-      case 2:
-        return const StatisticsScreen();
-      case 3:
-        return const SettingsScreen();
-      default:
-        return MoodDiaryScreen(key: _diaryKey);
-    }
-  }
+
 
   void _navigateToMoodEntry([MoodType? preselectedMood]) {
     DateTime? selectedDate;
@@ -122,12 +128,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     ).then((result) {
       if (result == true) {
-        // 일기가 저장되었으면 현재 화면 새로고침
-        if (_selectedIndex == 0) {
-          _diaryKey.currentState?.refreshData();
-        } else if (_selectedIndex == 1) {
-          _calendarKey.currentState?.refreshData();
-        }
+        // 일기가 저장되었으면 모든 화면 새로고침
+        _diaryKey.currentState?.refreshData();
+        _calendarKey.currentState?.refreshData();
+        _statisticsKey.currentState?.refreshData();
         setState(() {});
       }
     });

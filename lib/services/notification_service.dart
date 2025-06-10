@@ -56,21 +56,43 @@ class NotificationService {
   }
 
   // 권한 요청
-  Future<void> _requestPermissions() async {
-    if (kIsWeb) return;
+  Future<bool> _requestPermissions() async {
+    if (kIsWeb) return false;
 
-    // Android 13+ 알림 권한
-    final status = await Permission.notification.request();
-    print('알림 권한 상태: $status');
+    try {
+      // Android 13+ 알림 권한
+      final notificationStatus = await Permission.notification.request();
+      print('알림 권한 상태: $notificationStatus');
 
-    // iOS 권한
-    await _notifications!
-        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
+      // iOS 권한
+      final iosPermissions = await _notifications!
+          .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+          ?.requestPermissions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+
+      // 플랫폼별 권한 확인
+      if (!kIsWeb) {
+        try {
+          // 정확한 알람 권한 (Android 12+)
+          final alarmStatus = await Permission.scheduleExactAlarm.request();
+          print('정확한 알람 권한 상태: $alarmStatus');
+          
+          return notificationStatus.isGranted;
+        } catch (e) {
+          // iOS의 경우 또는 Android에서 scheduleExactAlarm이 지원되지 않는 경우
+          print('알람 권한 체크 오류 (정상적일 수 있음): $e');
+          return notificationStatus.isGranted || (iosPermissions ?? false);
+        }
+      }
+      
+      return false;
+    } catch (e) {
+      print('권한 요청 오류: $e');
+      return false;
+    }
   }
 
   // 알림 탭 처리
@@ -84,11 +106,24 @@ class NotificationService {
     if (kIsWeb || _notifications == null) return false;
 
     try {
+      // 권한 재확인
+      final hasPermission = await _checkPermissions();
+      if (!hasPermission) {
+        print('알림 권한이 없습니다. 권한을 요청합니다.');
+        final granted = await _requestPermissions();
+        if (!granted) {
+          print('알림 권한이 거부되었습니다.');
+          return false;
+        }
+      }
+
+      // 기존 알림 취소
       await _notifications!.cancel(_dailyNotificationId);
 
+      // 새 알림 스케줄링
       await _notifications!.zonedSchedule(
         _dailyNotificationId,
-        '오늘 하루는 어땠나요?',
+        '오늘 하루는 어땠나요? 🌟',
         '감정을 기록하고 소중한 순간을 간직해보세요 💝',
         _nextInstanceOfTime(time),
         const NotificationDetails(
@@ -99,9 +134,14 @@ class NotificationService {
             importance: Importance.high,
             priority: Priority.high,
             icon: '@mipmap/ic_launcher',
+            enableVibration: true,
+            playSound: true,
           ),
           iOS: DarwinNotificationDetails(
             sound: 'default.wav',
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
           ),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -114,10 +154,40 @@ class NotificationService {
       await setNotificationEnabled(true);
 
       print('일일 알림이 ${time.hour}:${time.minute}에 설정되었습니다');
+      
+      // 스케줄된 알림 확인
+      await _logScheduledNotifications();
+      
       return true;
     } catch (e) {
       print('알림 설정 오류: $e');
       return false;
+    }
+  }
+
+  // 권한 상태 확인 (설정 없이)
+  Future<bool> _checkPermissions() async {
+    if (kIsWeb) return false;
+
+    try {
+      final notificationStatus = await Permission.notification.status;
+      return notificationStatus.isGranted;
+    } catch (e) {
+      print('권한 상태 확인 오류: $e');
+      return false;
+    }
+  }
+
+  // 스케줄된 알림 로그 (디버그용)
+  Future<void> _logScheduledNotifications() async {
+    try {
+      final pendingNotifications = await _notifications!.pendingNotificationRequests();
+      print('스케줄된 알림 수: ${pendingNotifications.length}');
+      for (final notification in pendingNotifications) {
+        print('알림 ID: ${notification.id}, 제목: ${notification.title}');
+      }
+    } catch (e) {
+      print('스케줄된 알림 확인 오류: $e');
     }
   }
 

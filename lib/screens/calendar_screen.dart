@@ -15,7 +15,8 @@ class CalendarScreen extends StatefulWidget {
   State<CalendarScreen> createState() => CalendarScreenState();
 }
 
-class CalendarScreenState extends State<CalendarScreen> with TickerProviderStateMixin {
+class CalendarScreenState extends State<CalendarScreen> 
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   
@@ -30,6 +31,10 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
   // 애니메이션 컨트롤러
   late AnimationController _filterAnimationController;
   late Animation<double> _filterAnimation;
+  
+  // 성능 최적화를 위한 캐시
+  Map<String, Widget>? _markerCache;
+  Map<String, Map<MoodType, int>>? _statsCache;
 
   @override
   void initState() {
@@ -54,6 +59,9 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
     super.dispose();
   }
 
+  @override
+  bool get wantKeepAlive => true;
+
   // 외부에서 새로고침할 수 있는 메소드
   void refreshData() {
     _loadEntries();
@@ -76,10 +84,19 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
       final entries = await storage.getAllMoodEntries();
       
       if (mounted) {
+        // 점진적 캐시 초기화 (UI 블로킹 방지)
+        _markerCache?.clear();
+        _statsCache?.clear();
+        
         setState(() {
           _entries = entries;
           _entriesByDate = _groupEntriesByDate(entries);
           _isLoading = false;
+        });
+        
+        // 비동기로 캐시 예열 (화면 표시 후)
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _preloadCurrentMonthCache();
         });
       }
     } catch (e) {
@@ -93,6 +110,29 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
             backgroundColor: AppColors.error,
           ),
         );
+      }
+    }
+  }
+
+  // 현재 월의 캐시를 미리 로드 (성능 최적화)
+  void _preloadCurrentMonthCache() {
+    if (!mounted) return;
+    
+    final currentMonth = DateTime(_focusedDay.year, _focusedDay.month);
+    final nextMonth = DateTime(_focusedDay.year, _focusedDay.month + 1);
+    
+    // 현재 월의 일기들을 미리 캐시에 로드
+    final monthEntries = _entries.where((entry) {
+      return entry.date.isAfter(currentMonth.subtract(const Duration(days: 1))) &&
+             entry.date.isBefore(nextMonth);
+    }).toList();
+    
+    // 마커 캐시 예열
+    for (final entry in monthEntries) {
+      final date = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      final dayEntries = _entriesByDate[date] ?? [];
+      if (dayEntries.isNotEmpty) {
+        _buildMultipleMoodMarkers(dayEntries); // 캐시에 저장됨
       }
     }
   }
@@ -124,8 +164,15 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
     return dayEntries;
   }
 
-  // 월별 감정 통계 계산
+  // 월별 감정 통계 계산 (캐시 사용)
   Map<MoodType, int> _getMonthlyMoodStats() {
+    final cacheKey = '${_focusedDay.year}-${_focusedDay.month}';
+    
+    // 캐시에서 확인
+    if (_statsCache != null && _statsCache!.containsKey(cacheKey)) {
+      return _statsCache![cacheKey]!;
+    }
+    
     final currentMonth = DateTime(_focusedDay.year, _focusedDay.month);
     final nextMonth = DateTime(_focusedDay.year, _focusedDay.month + 1);
     
@@ -138,6 +185,10 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
     for (final mood in MoodType.values) {
       stats[mood] = monthEntries.where((entry) => entry.mood == mood).length;
     }
+    
+    // 캐시에 저장
+    _statsCache ??= {};
+    _statsCache![cacheKey] = stats;
     
     return stats;
   }
@@ -174,11 +225,15 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin용
     final theme = Theme.of(context);
     
     return Scaffold(
       backgroundColor: theme.colorScheme.background,
       body: CustomScrollView(
+        // 스크롤 성능 최적화
+        cacheExtent: 1000, // 캐시 범위 증가
+        physics: const BouncingScrollPhysics(), // 부드러운 스크롤
         slivers: [
           _buildAppBar(),
           if (_isLoading)
@@ -187,7 +242,7 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
             )
           else ...[
             SliverToBoxAdapter(child: _buildMonthlyStats()),
-            SliverToBoxAdapter(child: _buildFilterSection()),
+            if (_showFilters) SliverToBoxAdapter(child: _buildFilterSection()),
             SliverToBoxAdapter(child: _buildCalendar()),
             SliverToBoxAdapter(child: _buildSelectedDayEntries()),
           ],
@@ -441,7 +496,10 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
           ),
         ],
       ),
-      child: TableCalendar<MoodEntry>(
+      child: GestureDetector(
+        // 달력 터치는 가능하되, 수직 드래그 시에는 스크롤 허용
+        behavior: HitTestBehavior.deferToChild,
+        child: TableCalendar<MoodEntry>(
         firstDay: DateTime.utc(2020, 1, 1),
         lastDay: today, // 오늘까지만 선택 가능
         focusedDay: _focusedDay,
@@ -449,6 +507,9 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
         eventLoader: _getEntriesForDay,
         startingDayOfWeek: StartingDayOfWeek.monday,
         locale: 'ko_KR',
+        
+        // 제스처 설정 - 수직 드래그 비활성화
+        availableGestures: AvailableGestures.horizontalSwipe,
         
         // 선택된 날짜
         selectedDayPredicate: (day) {
@@ -479,15 +540,26 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
           }
           
           if (!isSameDay(_selectedDay, selectedDay)) {
-            setState(() {
-              _selectedDay = selectedDay;
-              _focusedDay = focusedDay;
-            });
+            // 선택된 날짜만 업데이트 (성능 최적화)
+            _selectedDay = selectedDay;
+            _focusedDay = focusedDay;
+            
+            // 선택된 날짜 엔트리 부분만 리빌드
+            if (mounted) {
+              setState(() {});
+            }
           }
         },
         
         onPageChanged: (focusedDay) {
-          _focusedDay = focusedDay;
+          if (_focusedDay.month != focusedDay.month || _focusedDay.year != focusedDay.year) {
+            _focusedDay = focusedDay;
+            
+            // 월이 변경된 경우에만 리빌드
+            if (mounted) {
+              setState(() {});
+            }
+          }
         },
         
         // 달력 스타일
@@ -571,20 +643,31 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
             );
           },
         ),
+        ),
       ),
     );
   }
 
-  // 여러 감정을 겹쳐서 표시하는 위젯
+  // 여러 감정을 겹쳐서 표시하는 위젯 (캐시 사용)
   Widget _buildMultipleMoodMarkers(List<MoodEntry> entries) {
     if (entries.isEmpty) return const SizedBox.shrink();
     
+    // 캐시 키 생성 (날짜 + 감정 타입들)
+    final cacheKey = entries.map((e) => '${e.date.day}-${e.mood.index}').join(',');
+    
+    // 캐시에서 확인
+    if (_markerCache != null && _markerCache!.containsKey(cacheKey)) {
+      return _markerCache![cacheKey]!;
+    }
+    
     final entryCount = entries.length;
+    
+    Widget markerWidget;
     
     // 감정 개수에 따른 크기 및 배치 설정
     if (entryCount == 1) {
       // 1개일 때는 크게 표시
-      return Container(
+      markerWidget = Container(
         width: 12,
         height: 12,
         decoration: BoxDecoration(
@@ -609,7 +692,7 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
       final markerSize = entryCount == 2 ? 10.0 : (entryCount == 3 ? 8.0 : 6.0);
       final offsetStep = entryCount == 2 ? 6.0 : (entryCount == 3 ? 4.0 : 3.0);
       
-      return SizedBox(
+      markerWidget = SizedBox(
         width: 20,
         height: 12,
         child: Stack(
@@ -675,6 +758,12 @@ class CalendarScreenState extends State<CalendarScreen> with TickerProviderState
         ),
       );
     }
+    
+    // 캐시에 저장
+    _markerCache ??= {};
+    _markerCache![cacheKey] = markerWidget;
+    
+    return markerWidget;
   }
 
   Widget _buildSelectedDayEntries() {

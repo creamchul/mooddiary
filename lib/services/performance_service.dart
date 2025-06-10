@@ -123,10 +123,10 @@ class PerformanceService {
   void _performMemoryCleanup() {
     _logPerformance('메모리 정리', '정리 작업 시작');
     
-    // 이미지 캐시 정리
-    ImageService.instance.clearCache();
+    // 이미지 캐시 크기 제한 (완전 정리 대신)
+    ImageService.instance.limitImageCacheSize(maxSize: 30);
     
-    // LocalStorage 캐시 크기 제한 - public 메서드 사용
+    // LocalStorage 캐시 크기 제한
     LocalStorageService.instance.limitCacheSize();
     
     // Garbage Collection 강제 실행 (가능한 경우)

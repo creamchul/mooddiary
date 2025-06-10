@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_sizes.dart';
 import '../services/notification_service.dart';
@@ -441,42 +442,110 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _toggleNotification(bool enabled) async {
     try {
       if (enabled) {
+        // 로딩 표시
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('알림을 설정하는 중...'),
+              ],
+            ),
+          ),
+        );
+
         final time = await NotificationService.instance.getNotificationTime();
         final success = await NotificationService.instance.scheduleDailyNotification(time);
         
+        // 로딩 다이얼로그 닫기
+        if (context.mounted) {
+          Navigator.pop(context);
+        }
+        
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('알림이 매일 ${time.hour}:${time.minute.toString().padLeft(2, '0')}에 설정되었습니다'),
-              backgroundColor: AppColors.success,
-            ),
-          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('✅ 알림이 매일 ${time.hour}:${time.minute.toString().padLeft(2, '0')}에 설정되었습니다'),
+                backgroundColor: AppColors.success,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('알림 설정에 실패했습니다'),
-              backgroundColor: AppColors.error,
-            ),
-          );
+          if (context.mounted) {
+            _showPermissionDialog();
+          }
         }
       } else {
         await NotificationService.instance.cancelDailyNotification();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('알림이 비활성화되었습니다'),
-            backgroundColor: AppColors.info,
-          ),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('🔕 알림이 비활성화되었습니다'),
+              backgroundColor: AppColors.info,
+            ),
+          );
+        }
       }
       setState(() {}); // UI 새로고침
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('오류: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      // 로딩 다이얼로그가 열려있다면 닫기
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('오류가 발생했습니다: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
+  }
+
+  // 권한 안내 다이얼로그
+  void _showPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: AppColors.warning),
+            SizedBox(width: 8),
+            Text('알림 권한 필요'),
+          ],
+        ),
+        content: const Text(
+          '알림을 받으려면 앱 설정에서 알림 권한을 허용해주세요.\n\n'
+          '설정 > 애플리케이션 > MoodDiary > 권한 > 알림'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('나중에'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // 앱 설정 열기
+              openAppSettings();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('설정 열기'),
+          ),
+        ],
+      ),
+    );
   }
 
   // 알림 시간 선택
@@ -486,6 +555,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final selectedTime = await showTimePicker(
       context: context,
       initialTime: currentTime,
+      initialEntryMode: TimePickerEntryMode.input, // 텍스트 입력 모드를 기본으로 설정
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -522,13 +592,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // 테스트 알림
   Future<void> _showTestNotification() async {
-    await NotificationService.instance.showTestNotification();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('테스트 알림을 전송했습니다!'),
-        backgroundColor: AppColors.success,
-      ),
-    );
+    try {
+      await NotificationService.instance.showTestNotification();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🔔 테스트 알림을 전송했습니다! 알림이 나타나지 않으면 권한을 확인해주세요.'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('테스트 알림 전송 실패: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildDataSection() {

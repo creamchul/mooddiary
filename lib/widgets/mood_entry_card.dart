@@ -24,6 +24,9 @@ class MoodEntryCard extends StatelessWidget {
     required this.onFavoriteToggle,
   });
 
+  // 성능 최적화: 메모이제이션을 위한 키
+  static ValueKey keyForEntry(String entryId) => ValueKey('mood_entry_$entryId');
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -171,13 +174,25 @@ class MoodEntryCard extends StatelessWidget {
   }
 
   Widget _buildContent(ThemeData theme) {
-    return Text(
-      entry.content,
-      style: theme.textTheme.bodyMedium?.copyWith(
-        height: 1.4,
+    if (entry.content.isEmpty) return const SizedBox.shrink();
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSizes.paddingM),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(AppSizes.radiusM),
+        border: Border.all(
+          color: theme.colorScheme.outline.withOpacity(0.1),
+        ),
       ),
-      maxLines: 3,
-      overflow: TextOverflow.ellipsis,
+      child: Text(
+        entry.content,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          height: 1.5,
+        ),
+        // 전체 내용 표시 (maxLines 제거)
+      ),
     );
   }
 
@@ -186,6 +201,7 @@ class MoodEntryCard extends StatelessWidget {
       height: 80,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(), // 부드러운 스크롤
         itemCount: entry.imageUrls.length,
         itemBuilder: (context, index) {
           final imagePath = entry.imageUrls[index];

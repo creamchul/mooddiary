@@ -76,7 +76,18 @@ class MoodDiaryApp extends StatelessWidget {
           darkTheme: AppTheme.darkTheme,
           themeMode: ThemeService.instance.flutterThemeMode,
           
-          // ?국???정
+          // 성능 최적화 설정
+          builder: (context, child) {
+            return MediaQuery(
+              // 텍스트 스케일링 고정 (성능 최적화)
+              data: MediaQuery.of(context).copyWith(
+                textScaler: const TextScaler.linear(1.0),
+              ),
+              child: child!,
+            );
+          },
+          
+          // 한국어 설정
           locale: const Locale('ko', 'KR'),
           supportedLocales: const [
             Locale('ko', 'KR'),

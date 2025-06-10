@@ -7,6 +7,17 @@ import 'package:uuid/uuid.dart';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
+// 캐시된 이미지 데이터 클래스
+class CachedImage {
+  final Uint8List data;
+  DateTime lastAccessed;
+
+  CachedImage({
+    required this.data,
+    required this.lastAccessed,
+  });
+}
+
 class ImageService {
   static const String _imagesFolderName = 'mood_diary_images';
   static const String _thumbnailsFolderName = 'mood_diary_thumbnails';
@@ -22,8 +33,8 @@ class ImageService {
   final Map<String, Uint8List> _webImageStorage = {};
   final Map<String, Uint8List> _webThumbnailStorage = {};
   
-  // 이미지 캐시 (메모리 최적화)
-  final Map<String, Uint8List> _imageCache = {};
+  // 이미지 캐시 (메모리 최적화) - CachedImage 사용
+  final Map<String, CachedImage> _imageCache = {};
   static const int _maxCacheSize = 50; // 최대 50개 이미지 캐시
 
   Future<void> init() async {
@@ -51,6 +62,8 @@ class ImageService {
   // 갤러리에서 이미지 선택
   Future<String?> pickImageFromGallery() async {
     try {
+      print('갤러리에서 이미지 선택을 시작합니다...');
+      
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 1920, // 더 높은 해상도로 변경
@@ -59,18 +72,36 @@ class ImageService {
       );
       
       if (image != null) {
-        return await _saveImageToLocal(image);
+        print('이미지가 선택되었습니다: ${image.path}');
+        final savedPath = await _saveImageToLocal(image);
+        if (savedPath != null) {
+          print('갤러리에서 이미지 선택 성공: $savedPath');
+          return savedPath;
+        } else {
+          print('이미지 저장에 실패했습니다');
+          return null;
+        }
       }
+      print('갤러리에서 이미지 선택이 취소되었습니다.');
       return null;
     } catch (e) {
       print('갤러리 이미지 선택 오류: $e');
-      return null;
+      // 권한 관련 오류인지 확인
+      if (e.toString().contains('Permission') || 
+          e.toString().contains('denied') ||
+          e.toString().contains('photo_access_denied')) {
+        print('권한 오류: 갤러리 접근 권한이 필요합니다.');
+        throw Exception('갤러리 접근 권한이 필요합니다. 설정에서 권한을 허용해주세요.');
+      }
+      throw e;
     }
   }
 
   // 카메라로 사진 촬영
   Future<String?> pickImageFromCamera() async {
     try {
+      print('카메라로 사진 촬영을 시작합니다...');
+      
       final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
         maxWidth: 1920, // 더 높은 해상도로 변경
@@ -79,12 +110,28 @@ class ImageService {
       );
       
       if (image != null) {
-        return await _saveImageToLocal(image);
+        print('사진이 촬영되었습니다: ${image.path}');
+        final savedPath = await _saveImageToLocal(image);
+        if (savedPath != null) {
+          print('카메라에서 이미지 촬영 성공: $savedPath');
+          return savedPath;
+        } else {
+          print('이미지 저장에 실패했습니다');
+          return null;
+        }
       }
+      print('카메라에서 이미지 촬영이 취소되었습니다.');
       return null;
     } catch (e) {
       print('카메라 이미지 촬영 오류: $e');
-      return null;
+      // 권한 관련 오류인지 확인
+      if (e.toString().contains('Permission') || 
+          e.toString().contains('denied') ||
+          e.toString().contains('camera_access_denied')) {
+        print('권한 오류: 카메라 접근 권한이 필요합니다.');
+        throw Exception('카메라 접근 권한이 필요합니다. 설정에서 권한을 허용해주세요.');
+      }
+      throw e;
     }
   }
 
@@ -268,44 +315,47 @@ class ImageService {
 
   // 이미지 선택 다이얼로그 표시
   Future<String?> showImagePickerDialog(BuildContext context) async {
-    return showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(2),
+    try {
+      return await showModalBottomSheet<String>(
+        context: context,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        isScrollControlled: true,
+        builder: (context) => Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              '사진 선택',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
+              const SizedBox(height: 20),
+              Text(
+                '사진 선택',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                                  Expanded(
                   child: _buildImagePickerOption(
                     context,
                     icon: Icons.photo_library,
                     label: '갤러리',
                     onTap: () async {
-                      Navigator.pop(context);
                       final imagePath = await pickImageFromGallery();
-                      Navigator.pop(context, imagePath);
+                      if (context.mounted) {
+                        Navigator.of(context).pop(imagePath);
+                      }
                     },
                   ),
                 ),
@@ -316,19 +366,44 @@ class ImageService {
                     icon: Icons.camera_alt,
                     label: '카메라',
                     onTap: () async {
-                      Navigator.pop(context);
                       final imagePath = await pickImageFromCamera();
-                      Navigator.pop(context, imagePath);
+                      if (context.mounted) {
+                        Navigator.of(context).pop(imagePath);
+                      }
                     },
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 20),
-          ],
+                ],
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      print('이미지 선택 다이얼로그 오류: $e');
+      // 권한 오류 메시지 표시
+      if (context.mounted) {
+        String errorMessage = '이미지를 선택할 수 없습니다.';
+        if (e.toString().contains('권한')) {
+          errorMessage = '카메라와 갤러리 권한이 필요합니다. 설정에서 권한을 허용해주세요.';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: '설정',
+              onPressed: () {
+                // 권한 설정 화면으로 이동하는 기능 추가 가능
+              },
+            ),
+          ),
+        );
+      }
+      return null;
+    }
   }
 
   Widget _buildImagePickerOption(
@@ -375,7 +450,7 @@ class ImageService {
     try {
       // 캐시에서 먼저 확인
       if (_imageCache.containsKey(imagePath)) {
-        return _imageCache[imagePath];
+        return _imageCache[imagePath]?.data;
       }
       
       Uint8List? imageBytes;
@@ -439,7 +514,7 @@ class ImageService {
       final oldestKey = _imageCache.keys.first;
       _imageCache.remove(oldestKey);
     }
-    _imageCache[key] = data;
+    _imageCache[key] = CachedImage(data: data, lastAccessed: DateTime.now());
   }
 
   // 캐시 클리어 (메모리 최적화)
@@ -450,4 +525,58 @@ class ImageService {
 
   // 이미지 캐시 크기 getter (PerformanceService용)
   int get imageCacheSize => _imageCache.length;
+
+  // 성능 최적화: 이미지 캐시 크기 제한
+  void limitImageCacheSize({int maxSize = 50}) {
+    if (_imageCache.length > maxSize) {
+      // LRU 방식으로 가장 오래된 항목들 제거
+      final entries = _imageCache.entries.toList();
+      entries.sort((a, b) => a.value.lastAccessed.compareTo(b.value.lastAccessed));
+      
+      // 최신 maxSize개만 유지
+      _imageCache.clear();
+      for (int i = 0; i < maxSize && i < entries.length; i++) {
+        _imageCache[entries[i].key] = entries[i].value;
+      }
+      
+      if (kDebugMode) {
+        print('[ImageService] 캐시 크기 제한: ${entries.length} -> $maxSize');
+      }
+    }
+  }
+
+  // 성능 최적화: 메모리 사용량 추정
+  int getEstimatedMemoryUsage() {
+    int totalSize = 0;
+    for (final cachedImage in _imageCache.values) {
+      totalSize += cachedImage.data.lengthInBytes;
+    }
+    return totalSize;
+  }
+
+  // 성능 최적화: 캐시 통계
+  Map<String, dynamic> getCacheStats() {
+    final memoryUsage = getEstimatedMemoryUsage();
+    return {
+      'cacheSize': _imageCache.length,
+      'memoryUsage': memoryUsage,
+      'memoryUsageMB': (memoryUsage / 1024 / 1024).toStringAsFixed(2),
+      'hitRate': _cacheHits / (_cacheHits + _cacheMisses),
+      'hits': _cacheHits,
+      'misses': _cacheMisses,
+    };
+  }
+
+  // 성능 최적화: 캐시 통계 변수
+  int _cacheHits = 0;
+  int _cacheMisses = 0;
+  
+  // 캐시 통계 업데이트
+  void _updateCacheStats(bool isHit) {
+    if (isHit) {
+      _cacheHits++;
+    } else {
+      _cacheMisses++;
+    }
+  }
 } 

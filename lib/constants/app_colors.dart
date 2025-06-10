@@ -6,6 +6,9 @@ class AppColors {
   static const Color primaryLight = Color(0xFFFFABD1);
   static const Color primaryDark = Color(0xFFB4004E);
   
+  // 세컨더리 컬러
+  static const Color secondary = Color(0xFF2196F3);
+  
   // 파스텔 핑크 서브 컬러들
   static const Color pastelPink1 = Color(0xFFFCE4EC);
   static const Color pastelPink2 = Color(0xFFF8BBD9);
@@ -36,8 +39,8 @@ class AppColors {
   // 감정별 컬러
   static const Color emotionBest = Color(0xFFFFD54F);      // 최고 - 노란색
   static const Color emotionGood = Color(0xFF81C784);      // 좋음 - 초록색
-  static const Color emotionNeutral = Color(0xFF90A4AE);  // 그저그래 - 회색
-  static const Color emotionBad = Color(0xFFFFB74D);      // 별로 - 주황색
+  static const Color emotionNeutral = Color(0xFF90A4AE);  // 보통 - 회색
+  static const Color emotionBad = Color(0xFFFFB74D);      // 나쁨 - 주황색
   static const Color emotionWorst = Color(0xFFE57373);    // 최악 - 빨간색
   
   // 기능별 컬러

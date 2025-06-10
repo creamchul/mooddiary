@@ -433,38 +433,41 @@ class _MoodEntryScreenState extends State<MoodEntryScreen> {
             ),
             const SizedBox(height: AppSizes.paddingM),
             
-            // 이미지 추가 버튼
-            InkWell(
-              onTap: _addImage,
-              borderRadius: BorderRadius.circular(AppSizes.radiusM),
-              child: Container(
-                width: double.infinity,
-                height: 100,
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: theme.colorScheme.outline.withOpacity(0.3),
-                    style: BorderStyle.solid,
-                  ),
-                  borderRadius: BorderRadius.circular(AppSizes.radiusM),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.add_photo_alternate,
-                      size: 32,
-                      color: theme.colorScheme.onSurface.withOpacity(0.6),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '사진 추가',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.6),
+            // 이미지 추가 버튼들
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _pickImageFromGallery(),
+                    icon: const Icon(Icons.photo_library),
+                    label: const Text('갤러리'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppSizes.radiusM),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                const SizedBox(width: AppSizes.paddingM),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _pickImageFromCamera(),
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('카메라'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.secondary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppSizes.radiusM),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
             
             // 선택된 이미지들 표시
@@ -554,14 +557,139 @@ class _MoodEntryScreenState extends State<MoodEntryScreen> {
     return null;
   }
 
+  // 갤러리에서 이미지 선택
+  Future<void> _pickImageFromGallery() async {
+    try {
+      print('갤러리에서 이미지 선택 시작');
+      
+      final imageService = ImageService.instance;
+      final imagePath = await imageService.pickImageFromGallery();
+      
+      if (imagePath != null && imagePath.isNotEmpty) {
+        setState(() {
+          _imageUrls.add(imagePath);
+        });
+        print('갤러리에서 이미지가 성공적으로 추가되었습니다: $imagePath');
+        
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('📸 갤러리에서 사진을 추가했습니다!'),
+              backgroundColor: AppColors.success,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        print('갤러리에서 이미지 선택이 취소되었습니다');
+      }
+    } catch (e) {
+      print('갤러리 이미지 선택 오류: $e');
+      
+      if (context.mounted) {
+        String errorMessage = '갤러리에서 사진을 선택할 수 없습니다.';
+        if (e.toString().contains('권한')) {
+          errorMessage = '갤러리 접근 권한이 필요합니다. 설정에서 권한을 허용해주세요.';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  // 카메라로 사진 촬영
+  Future<void> _pickImageFromCamera() async {
+    try {
+      print('카메라로 사진 촬영 시작');
+      
+      final imageService = ImageService.instance;
+      final imagePath = await imageService.pickImageFromCamera();
+      
+      if (imagePath != null && imagePath.isNotEmpty) {
+        setState(() {
+          _imageUrls.add(imagePath);
+        });
+        print('카메라에서 이미지가 성공적으로 추가되었습니다: $imagePath');
+        
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('📷 카메라로 사진을 촬영했습니다!'),
+              backgroundColor: AppColors.success,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        print('카메라에서 사진 촬영이 취소되었습니다');
+      }
+    } catch (e) {
+      print('카메라 사진 촬영 오류: $e');
+      
+      if (context.mounted) {
+        String errorMessage = '카메라로 사진을 촬영할 수 없습니다.';
+        if (e.toString().contains('권한')) {
+          errorMessage = '카메라 접근 권한이 필요합니다. 설정에서 권한을 허용해주세요.';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _addImage() async {
-    final imageService = ImageService.instance;
-    final imagePath = await imageService.showImagePickerDialog(context);
-    
-    if (imagePath != null) {
-      setState(() {
-        _imageUrls.add(imagePath);
-      });
+    try {
+      print('사진 추가 버튼이 눌렸습니다');
+      
+      final imageService = ImageService.instance;
+      print('ImageService 인스턴스 가져오기 완료');
+      
+      final imagePath = await imageService.showImagePickerDialog(context);
+      print('이미지 선택 다이얼로그 결과: $imagePath');
+      
+      if (imagePath != null && imagePath.isNotEmpty) {
+        setState(() {
+          _imageUrls.add(imagePath);
+        });
+        print('이미지가 성공적으로 추가되었습니다: $imagePath');
+        
+        // 성공 메시지 표시
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('📸 사진이 추가되었습니다!'),
+              backgroundColor: AppColors.success,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        print('이미지 선택이 취소되었거나 실패했습니다');
+      }
+    } catch (e) {
+      print('이미지 추가 중 오류 발생: $e');
+      
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('사진 추가 실패: $e'),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 

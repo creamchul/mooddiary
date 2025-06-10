@@ -11,10 +11,10 @@ class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
 
   @override
-  State<StatisticsScreen> createState() => StatisticsScreenState();
+  State<StatisticsScreen> createState() => _StatisticsScreenState();
 }
 
-class StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepAliveClientMixin {
+class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepAliveClientMixin {
   DateTime _selectedMonth = DateTime.now();
   List<MoodEntry> _entries = [];
   Map<MoodType, int> _moodCounts = {};
@@ -34,11 +34,6 @@ class StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepAl
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadStatistics();
-  }
-
-  // 외부에서 새로고침할 수 있는 메서드 추가
-  void refreshData() {
     _loadStatistics();
   }
 

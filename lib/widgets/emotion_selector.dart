@@ -24,31 +24,47 @@ class EmotionSelector extends StatelessWidget {
       MoodType.worst,
     ];
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: orderedMoods.map((mood) {
-        return _buildEmotionButton(mood);
-      }).toList(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 화면이 좁을 때는 작은 크기로 조정
+        final isNarrow = constraints.maxWidth < 350;
+        
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: orderedMoods.map((mood) {
+            return Flexible(
+              child: _buildEmotionButton(mood, isNarrow: isNarrow),
+            );
+          }).toList(),
+        );
+      },
     );
   }
 
-  Widget _buildEmotionButton(MoodType mood) {
+  Widget _buildEmotionButton(MoodType mood, {bool isNarrow = false}) {
     final isSelected = selectedMood == mood;
     final color = _getMoodColor(mood);
+    
+    // 화면 크기에 따른 동적 크기 조정
+    final buttonSize = isNarrow ? AppSizes.emotionIconL : AppSizes.emotionIconXL;
+    final fontSize = isNarrow ? 22.0 : 28.0;
+    final labelSize = isNarrow ? 10.0 : 12.0;
     
     return GestureDetector(
       onTap: () => onMoodSelected(mood),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeInOut,
-        width: AppSizes.emotionIconXL,
-        height: AppSizes.emotionIconXL + 24,
+        constraints: BoxConstraints(
+          maxWidth: buttonSize + 8, // 여백 추가
+        ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: AppSizes.emotionIconXL,
-              height: AppSizes.emotionIconXL,
+              width: buttonSize,
+              height: buttonSize,
               decoration: BoxDecoration(
                 color: isSelected 
                     ? color
@@ -73,7 +89,7 @@ class EmotionSelector extends StatelessWidget {
               child: Center(
                 child: Text(
                   mood.emoji,
-                  style: const TextStyle(fontSize: 28),
+                  style: TextStyle(fontSize: fontSize),
                 ),
               ),
             ),
@@ -81,10 +97,13 @@ class EmotionSelector extends StatelessWidget {
             Text(
               mood.label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: labelSize,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 color: isSelected ? color : Colors.grey[600],
               ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
